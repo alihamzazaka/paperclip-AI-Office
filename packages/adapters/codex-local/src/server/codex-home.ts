@@ -4,16 +4,25 @@ import path from "node:path";
 import type { AdapterExecutionContext } from "@paperclipai/adapter-utils";
 
 const TRUTHY_ENV_RE = /^(1|true|yes|on)$/i;
-const COPIED_SHARED_FILES = ["config.json", "config.toml", "instructions.md"] as const;
+const COPIED_SHARED_FILES = [
+  "config.json",
+  "config.toml",
+  "instructions.md",
+] as const;
 const SYMLINKED_SHARED_FILES = ["auth.json"] as const;
 const DEFAULT_PAPERCLIP_INSTANCE_ID = "default";
 
 function nonEmpty(value: string | undefined): string | null {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : null;
 }
 
 export async function pathExists(candidate: string): Promise<boolean> {
-  return fs.access(candidate).then(() => true).catch(() => false);
+  return fs
+    .access(candidate)
+    .then(() => true)
+    .catch(() => false);
 }
 
 export function resolveSharedCodexHomeDir(
@@ -31,10 +40,19 @@ export function resolveManagedCodexHomeDir(
   env: NodeJS.ProcessEnv,
   companyId?: string,
 ): string {
-  const paperclipHome = nonEmpty(env.PAPERCLIP_HOME) ?? path.resolve(os.homedir(), ".paperclip");
-  const instanceId = nonEmpty(env.PAPERCLIP_INSTANCE_ID) ?? DEFAULT_PAPERCLIP_INSTANCE_ID;
+  const paperclipHome =
+    nonEmpty(env.PAPERCLIP_HOME) ?? path.resolve(os.homedir(), ".paperclip");
+  const instanceId =
+    nonEmpty(env.PAPERCLIP_INSTANCE_ID) ?? DEFAULT_PAPERCLIP_INSTANCE_ID;
   return companyId
-    ? path.resolve(paperclipHome, "instances", instanceId, "companies", companyId, "codex-home")
+    ? path.resolve(
+        paperclipHome,
+        "instances",
+        instanceId,
+        "companies",
+        companyId,
+        "codex-home",
+      )
     : path.resolve(paperclipHome, "instances", instanceId, "codex-home");
 }
 
@@ -46,7 +64,11 @@ async function ensureSymlink(target: string, source: string): Promise<void> {
   const existing = await fs.lstat(target).catch(() => null);
   if (!existing) {
     await ensureParentDir(target);
-    await fs.symlink(source, target);
+    if (process.platform === "win32") {
+      await fs.symlink(source, target, "junction");
+    } else {
+      await fs.symlink(source, target);
+    }
     return;
   }
 
@@ -61,7 +83,11 @@ async function ensureSymlink(target: string, source: string): Promise<void> {
   if (resolvedLinkedPath === source) return;
 
   await fs.unlink(target);
-  await fs.symlink(source, target);
+  if (process.platform === "win32") {
+    await fs.symlink(source, target, "junction");
+  } else {
+    await fs.symlink(source, target);
+  }
 }
 
 async function ensureCopiedFile(target: string, source: string): Promise<void> {

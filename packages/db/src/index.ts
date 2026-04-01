@@ -28,5 +28,6 @@ export {
 export {
   createEmbeddedPostgresLogBuffer,
   formatEmbeddedPostgresError,
+  isSharedMemoryConflictError,
 } from "./embedded-postgres-error.js";
 export * from "./schema/index.js";

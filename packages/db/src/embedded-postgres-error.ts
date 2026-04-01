@@ -65,6 +65,15 @@ export function createEmbeddedPostgresLogBuffer(limit = DEFAULT_RECENT_LOG_LIMIT
   };
 }
 
+export function isSharedMemoryConflictError(error: unknown, recentLogs: string[]): boolean {
+  const haystack = [
+    error instanceof Error ? error.message : String(error ?? ""),
+    ...recentLogs,
+  ].join("\n").toLowerCase();
+  return haystack.includes("pre-existing shared memory block is still in use") ||
+    haystack.includes("shared memory block is still in use");
+}
+
 export function formatEmbeddedPostgresError(
   error: unknown,
   input: {

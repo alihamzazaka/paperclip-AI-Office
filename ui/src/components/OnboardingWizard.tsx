@@ -44,6 +44,7 @@ import {
   Bot,
   Code,
   Gem,
+  Github,
   ListTodo,
   Rocket,
   ArrowLeft,
@@ -62,6 +63,7 @@ type Step = 1 | 2 | 3 | 4;
 type AdapterType =
   | "claude_local"
   | "codex_local"
+  | "copilot"
   | "gemini_local"
   | "hermes_local"
   | "opencode_local"
@@ -209,6 +211,7 @@ export function OnboardingWizard() {
   const isLocalAdapter =
     adapterType === "claude_local" ||
     adapterType === "codex_local" ||
+    adapterType === "copilot" ||
     adapterType === "gemini_local" ||
     adapterType === "hermes_local" ||
     adapterType === "opencode_local" ||
@@ -218,6 +221,8 @@ export function OnboardingWizard() {
     command.trim() ||
     (adapterType === "codex_local"
       ? "codex"
+      : adapterType === "copilot"
+        ? "copilot"
       : adapterType === "gemini_local"
         ? "gemini"
       : adapterType === "hermes_local"
@@ -849,6 +854,12 @@ export function OnboardingWizard() {
                             desc: "Local Cursor agent"
                           },
                           {
+                            value: "copilot" as const,
+                            label: "GitHub Copilot",
+                            icon: Github,
+                            desc: "GitHub Copilot agent"
+                          },
+                          {
                             value: "hermes_local" as const,
                             label: "Hermes Agent",
                             icon: HermesIcon,
@@ -912,6 +923,7 @@ export function OnboardingWizard() {
                   {/* Conditional adapter fields */}
                   {(adapterType === "claude_local" ||
                     adapterType === "codex_local" ||
+                    adapterType === "copilot" ||
                     adapterType === "gemini_local" ||
                     adapterType === "hermes_local" ||
                     adapterType === "opencode_local" ||
@@ -1087,6 +1099,8 @@ export function OnboardingWizard() {
                           <p className="text-muted-foreground font-mono break-all">
                             {adapterType === "cursor"
                               ? `${effectiveAdapterCommand} -p --mode ask --output-format json \"Respond with hello.\"`
+                              : adapterType === "copilot"
+                                ? `${effectiveAdapterCommand} -p \"Respond with hello.\" --silent --output-format text --stream off --no-ask-user --allow-all-tools`
                               : adapterType === "codex_local"
                               ? `${effectiveAdapterCommand} exec --json -`
                               : adapterType === "gemini_local"
@@ -1100,6 +1114,7 @@ export function OnboardingWizard() {
                             <span className="font-mono">Respond with hello.</span>
                           </p>
                           {adapterType === "cursor" ||
+                          adapterType === "copilot" ||
                           adapterType === "codex_local" ||
                           adapterType === "gemini_local" ||
                           adapterType === "opencode_local" ? (
@@ -1108,6 +1123,8 @@ export function OnboardingWizard() {
                               <span className="font-mono">
                                 {adapterType === "cursor"
                                   ? "CURSOR_API_KEY"
+                                  : adapterType === "copilot"
+                                    ? "COPILOT_GITHUB_TOKEN"
                                   : adapterType === "gemini_local"
                                     ? "GEMINI_API_KEY"
                                     : "OPENAI_API_KEY"}
@@ -1116,6 +1133,8 @@ export function OnboardingWizard() {
                               <span className="font-mono">
                                 {adapterType === "cursor"
                                   ? "agent login"
+                                  : adapterType === "copilot"
+                                    ? "copilot login"
                                   : adapterType === "codex_local"
                                     ? "codex login"
                                     : adapterType === "gemini_local"

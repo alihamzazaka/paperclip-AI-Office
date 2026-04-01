@@ -3,7 +3,10 @@ import { resolveMigrationConnection } from "./migration-runtime.js";
 
 const jsonMode = process.argv.includes("--json");
 
-function toError(error: unknown, context = "Migration status check failed"): Error {
+function toError(
+  error: unknown,
+  context = "Migration status check failed",
+): Error {
   if (error instanceof Error) return error;
   if (error === undefined) return new Error(context);
   if (typeof error === "string") return new Error(`${context}: ${error}`);
@@ -51,6 +54,9 @@ async function main(): Promise<void> {
     );
   } finally {
     await connection.stop();
+    // On Windows, embedded postgres child processes may keep the event loop alive
+    // even after stop(). Force exit so dev-runner doesn't hang.
+    process.exit(0);
   }
 }
 

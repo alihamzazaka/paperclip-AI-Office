@@ -1,8 +1,12 @@
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import path from "node:path";
 import { ensurePostgresDatabase, getPostgresDataDirectory } from "./client.js";
-import { createEmbeddedPostgresLogBuffer, formatEmbeddedPostgresError } from "./embedded-postgres-error.js";
+import {
+  createEmbeddedPostgresLogBuffer,
+  formatEmbeddedPostgresError,
+  isSharedMemoryConflictError,
+} from "./embedded-postgres-error.js";
 import { resolveDatabaseTarget } from "./runtime-config.js";
 
 type EmbeddedPostgresInstance = {
@@ -31,7 +35,9 @@ export type MigrationConnection = {
 function readRunningPostmasterPid(postmasterPidFile: string): number | null {
   if (!existsSync(postmasterPidFile)) return null;
   try {
-    const pid = Number(readFileSync(postmasterPidFile, "utf8").split("\n")[0]?.trim());
+    const pid = Number(
+      readFileSync(postmasterPidFile, "utf8").split("\n")[0]?.trim(),
+    );
     if (!Number.isInteger(pid) || pid <= 0) return null;
     process.kill(pid, 0);
     return pid;
@@ -102,12 +108,16 @@ async function ensureEmbeddedPostgresConnection(
 
   if (!runningPid && existsSync(pgVersionFile)) {
     try {
-      const actualDataDir = await getPostgresDataDirectory(preferredAdminConnectionString);
+      const actualDataDir = await getPostgresDataDirectory(
+        preferredAdminConnectionString,
+      );
       const matchesDataDir =
         typeof actualDataDir === "string" &&
         path.resolve(actualDataDir) === path.resolve(dataDir);
       if (!matchesDataDir) {
-        throw new Error("reachable postgres does not use the expected embedded data directory");
+        throw new Error(
+          "reachable postgres does not use the expected embedded data directory",
+        );
       }
       await ensurePostgresDatabase(preferredAdminConnectionString, "paperclip");
       process.emitWarning(
@@ -145,14 +155,64 @@ async function ensureEmbeddedPostgresConnection(
     onError: logBuffer.append,
   });
 
+  // Helper: recover from Windows shared memory conflicts by using a fresh data dir.
+  async function trySharedMemoryRecovery(
+    error: unknown,
+    logs: string[],
+    phase: string,
+  ): Promise<MigrationConnection | null> {
+    if (process.platform !== "win32" || !isSharedMemoryConflictError(error, logs)) {
+      return null;
+    }
+    const recoveryDir = path.join(path.dirname(dataDir), "db-recovery");
+    const overrideFile = path.join(path.dirname(dataDir), "db-path-override.txt");
+    process.stderr.write(
+      `[paperclip] Detected stale Windows shared memory block during ${phase} for ${dataDir}.\n` +
+      `[paperclip] Initializing fresh database at ${recoveryDir}...\n`,
+    );
+    if (existsSync(recoveryDir)) {
+      rmSync(recoveryDir, { recursive: true, force: true });
+    }
+    const freshLogBuffer = createEmbeddedPostgresLogBuffer();
+    const freshInstance = new EmbeddedPostgres({
+      databaseDir: recoveryDir,
+      user: "paperclip",
+      password: "paperclip",
+      port: selectedPort,
+      persistent: true,
+      initdbFlags: ["--encoding=UTF8", "--locale=C", "--lc-messages=C"],
+      onLog: freshLogBuffer.append,
+      onError: freshLogBuffer.append,
+    });
+    try {
+      await freshInstance.initialise();
+      await freshInstance.start();
+      writeFileSync(overrideFile, recoveryDir, "utf8");
+      const adminCS = `postgres://paperclip:paperclip@127.0.0.1:${selectedPort}/postgres`;
+      await ensurePostgresDatabase(adminCS, "paperclip");
+      return {
+        connectionString: `postgres://paperclip:paperclip@127.0.0.1:${selectedPort}/paperclip`,
+        source: `embedded-postgres@${selectedPort}`,
+        stop: async () => { await freshInstance.stop(); },
+      };
+    } catch (retryError) {
+      throw formatEmbeddedPostgresError(retryError, {
+        fallbackMessage: `Failed to start embedded PostgreSQL on port ${selectedPort} after shared memory recovery (${phase})`,
+        recentLogs: freshLogBuffer.getRecentLogs(),
+      });
+    }
+  }
+
   if (!existsSync(path.resolve(dataDir, "PG_VERSION"))) {
     try {
       await instance.initialise();
     } catch (error) {
+      const logs = logBuffer.getRecentLogs();
+      const recovered = await trySharedMemoryRecovery(error, logs, "initialise");
+      if (recovered) return recovered;
       throw formatEmbeddedPostgresError(error, {
-        fallbackMessage:
-          `Failed to initialize embedded PostgreSQL cluster in ${dataDir} on port ${selectedPort}`,
-        recentLogs: logBuffer.getRecentLogs(),
+        fallbackMessage: `Failed to initialize embedded PostgreSQL cluster in ${dataDir} on port ${selectedPort}`,
+        recentLogs: logs,
       });
     }
   }
@@ -162,9 +222,12 @@ async function ensureEmbeddedPostgresConnection(
   try {
     await instance.start();
   } catch (error) {
+    const logs = logBuffer.getRecentLogs();
+    const recovered = await trySharedMemoryRecovery(error, logs, "start");
+    if (recovered) return recovered;
     throw formatEmbeddedPostgresError(error, {
       fallbackMessage: `Failed to start embedded PostgreSQL on port ${selectedPort}`,
-      recentLogs: logBuffer.getRecentLogs(),
+      recentLogs: logs,
     });
   }
 
@@ -190,5 +253,13 @@ export async function resolveMigrationConnection(): Promise<MigrationConnection>
     };
   }
 
-  return ensureEmbeddedPostgresConnection(target.dataDir, target.port);
+  // On Windows, a previous run may have persisted a recovery data dir to avoid
+  // a stale shared memory conflict. Use that override if present.
+  const overrideFile = path.join(path.dirname(target.dataDir), "db-path-override.txt");
+  const effectiveDataDir =
+    existsSync(overrideFile)
+      ? readFileSync(overrideFile, "utf8").trim()
+      : target.dataDir;
+
+  return ensureEmbeddedPostgresConnection(effectiveDataDir, target.port);
 }

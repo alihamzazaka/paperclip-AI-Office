@@ -21,6 +21,7 @@ const adapterLabels: Record<string, string> = {
   openclaw_gateway: "OpenClaw Gateway",
   cursor: "Cursor (local)",
   hermes_local: "Hermes Agent",
+  copilot: "GitHub Copilot",
   process: "Process",
   http: "HTTP",
 };

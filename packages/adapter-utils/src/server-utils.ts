@@ -1,10 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { constants as fsConstants, promises as fs, type Dirent } from "node:fs";
 import path from "node:path";
-import type {
-  AdapterSkillEntry,
-  AdapterSkillSnapshot,
-} from "./types.js";
+import type { AdapterSkillEntry, AdapterSkillSnapshot } from "./types.js";
 
 export interface RunProcessResult {
   exitCode: number | null;
@@ -24,6 +21,7 @@ interface RunningProcess {
 interface SpawnTarget {
   command: string;
   args: string[];
+  windowsVerbatimArguments?: boolean;
 }
 
 type ChildProcessWithEvents = ChildProcess & {
@@ -37,7 +35,8 @@ type ChildProcessWithEvents = ChildProcess & {
 export const runningProcesses = new Map<string, RunningProcess>();
 export const MAX_CAPTURE_BYTES = 4 * 1024 * 1024;
 export const MAX_EXCERPT_BYTES = 32 * 1024;
-const SENSITIVE_ENV_KEY = /(key|token|secret|password|passwd|authorization|cookie)/i;
+const SENSITIVE_ENV_KEY =
+  /(key|token|secret|password|passwd|authorization|cookie)/i;
 const PAPERCLIP_SKILL_ROOT_RELATIVE_CANDIDATES = [
   "../../skills",
   "../../../../../skills",
@@ -84,10 +83,9 @@ function skillLocationLabel(value: string | null | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function buildManagedSkillOrigin(entry: { required?: boolean }): Pick<
-  AdapterSkillEntry,
-  "origin" | "originLabel" | "readOnly"
-> {
+function buildManagedSkillOrigin(entry: {
+  required?: boolean;
+}): Pick<AdapterSkillEntry, "origin" | "originLabel" | "readOnly"> {
   if (entry.required) {
     return {
       origin: "paperclip_required",
@@ -111,7 +109,9 @@ function resolveInstalledEntryTarget(
   const fullPath = path.join(skillsHome, entryName);
   if (dirent.isSymbolicLink()) {
     return {
-      targetPath: linkedPath ? path.resolve(path.dirname(fullPath), linkedPath) : null,
+      targetPath: linkedPath
+        ? path.resolve(path.dirname(fullPath), linkedPath)
+        : null,
       kind: "symlink",
     };
   }
@@ -141,7 +141,9 @@ export function asBoolean(value: unknown, fallback: boolean): boolean {
 }
 
 export function asStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
 }
 
 export function parseJson(value: string): Record<string, unknown> | null {
@@ -152,17 +154,30 @@ export function parseJson(value: string): Record<string, unknown> | null {
   }
 }
 
-export function appendWithCap(prev: string, chunk: string, cap = MAX_CAPTURE_BYTES) {
+export function appendWithCap(
+  prev: string,
+  chunk: string,
+  cap = MAX_CAPTURE_BYTES,
+) {
   const combined = prev + chunk;
-  return combined.length > cap ? combined.slice(combined.length - cap) : combined;
+  return combined.length > cap
+    ? combined.slice(combined.length - cap)
+    : combined;
 }
 
-export function resolvePathValue(obj: Record<string, unknown>, dottedPath: string) {
+export function resolvePathValue(
+  obj: Record<string, unknown>,
+  dottedPath: string,
+) {
   const parts = dottedPath.split(".");
   let cursor: unknown = obj;
 
   for (const part of parts) {
-    if (typeof cursor !== "object" || cursor === null || Array.isArray(cursor)) {
+    if (
+      typeof cursor !== "object" ||
+      cursor === null ||
+      Array.isArray(cursor)
+    ) {
       return "";
     }
     cursor = (cursor as Record<string, unknown>)[part];
@@ -170,7 +185,8 @@ export function resolvePathValue(obj: Record<string, unknown>, dottedPath: strin
 
   if (cursor === null || cursor === undefined) return "";
   if (typeof cursor === "string") return cursor;
-  if (typeof cursor === "number" || typeof cursor === "boolean") return String(cursor);
+  if (typeof cursor === "number" || typeof cursor === "boolean")
+    return String(cursor);
 
   try {
     return JSON.stringify(cursor);
@@ -179,8 +195,13 @@ export function resolvePathValue(obj: Record<string, unknown>, dottedPath: strin
   }
 }
 
-export function renderTemplate(template: string, data: Record<string, unknown>) {
-  return template.replace(/{{\s*([a-zA-Z0-9_.-]+)\s*}}/g, (_, path) => resolvePathValue(data, path));
+export function renderTemplate(
+  template: string,
+  data: Record<string, unknown>,
+) {
+  return template.replace(/{{\s*([a-zA-Z0-9_.-]+)\s*}}/g, (_, path) =>
+    resolvePathValue(data, path),
+  );
 }
 
 export function joinPromptSections(
@@ -193,7 +214,9 @@ export function joinPromptSections(
     .join(separator);
 }
 
-export function redactEnvForLogs(env: Record<string, string>): Record<string, string> {
+export function redactEnvForLogs(
+  env: Record<string, string>,
+): Record<string, string> {
   const redacted: Record<string, string> = {};
   for (const [key, value] of Object.entries(env)) {
     redacted[key] = SENSITIVE_ENV_KEY.test(key) ? "***REDACTED***" : value;
@@ -201,11 +224,15 @@ export function redactEnvForLogs(env: Record<string, string>): Record<string, st
   return redacted;
 }
 
-export function buildPaperclipEnv(agent: { id: string; companyId: string }): Record<string, string> {
+export function buildPaperclipEnv(agent: {
+  id: string;
+  companyId: string;
+}): Record<string, string> {
   const resolveHostForUrl = (rawHost: string): string => {
     const host = rawHost.trim();
     if (!host || host === "0.0.0.0" || host === "::") return "localhost";
-    if (host.includes(":") && !host.startsWith("[") && !host.endsWith("]")) return `[${host}]`;
+    if (host.includes(":") && !host.startsWith("[") && !host.endsWith("]"))
+      return `[${host}]`;
     return host;
   };
   const vars: Record<string, string> = {
@@ -215,8 +242,10 @@ export function buildPaperclipEnv(agent: { id: string; companyId: string }): Rec
   const runtimeHost = resolveHostForUrl(
     process.env.PAPERCLIP_LISTEN_HOST ?? process.env.HOST ?? "localhost",
   );
-  const runtimePort = process.env.PAPERCLIP_LISTEN_PORT ?? process.env.PORT ?? "3100";
-  const apiUrl = process.env.PAPERCLIP_API_URL ?? `http://${runtimeHost}:${runtimePort}`;
+  const runtimePort =
+    process.env.PAPERCLIP_LISTEN_PORT ?? process.env.PORT ?? "3100";
+  const apiUrl =
+    process.env.PAPERCLIP_API_URL ?? `http://${runtimeHost}:${runtimePort}`;
   vars.PAPERCLIP_API_URL = apiUrl;
   return vars;
 }
@@ -234,33 +263,59 @@ function windowsPathExts(env: NodeJS.ProcessEnv): string[] {
 
 async function pathExists(candidate: string) {
   try {
-    await fs.access(candidate, process.platform === "win32" ? fsConstants.F_OK : fsConstants.X_OK);
+    await fs.access(
+      candidate,
+      process.platform === "win32" ? fsConstants.F_OK : fsConstants.X_OK,
+    );
     return true;
   } catch {
     return false;
   }
 }
 
-async function resolveCommandPath(command: string, cwd: string, env: NodeJS.ProcessEnv): Promise<string | null> {
+async function resolveCommandPath(
+  command: string,
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+): Promise<string | null> {
+  const normalizePathToken = (value: string) => {
+    const trimmed = value.trim();
+    if (
+      trimmed.length >= 2 &&
+      ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+        (trimmed.startsWith("'") && trimmed.endsWith("'")))
+    ) {
+      return trimmed.slice(1, -1);
+    }
+    return trimmed;
+  };
+
+  const normalizedCommand = normalizePathToken(command);
   const hasPathSeparator = command.includes("/") || command.includes("\\");
   if (hasPathSeparator) {
-    const absolute = path.isAbsolute(command) ? command : path.resolve(cwd, command);
+    const absolute = path.isAbsolute(normalizedCommand)
+      ? normalizedCommand
+      : path.resolve(cwd, normalizedCommand);
     return (await pathExists(absolute)) ? absolute : null;
   }
 
   const pathValue = env.PATH ?? env.Path ?? "";
   const delimiter = process.platform === "win32" ? ";" : ":";
-  const dirs = pathValue.split(delimiter).filter(Boolean);
+  const dirs = pathValue
+    .split(delimiter)
+    .map((dir) => normalizePathToken(dir))
+    .filter(Boolean);
   const exts = process.platform === "win32" ? windowsPathExts(env) : [""];
-  const hasExtension = process.platform === "win32" && path.extname(command).length > 0;
+  const hasExtension =
+    process.platform === "win32" && path.extname(normalizedCommand).length > 0;
 
   for (const dir of dirs) {
     const candidates =
       process.platform === "win32"
         ? hasExtension
-          ? [path.join(dir, command)]
-          : exts.map((ext) => path.join(dir, `${command}${ext}`))
-        : [path.join(dir, command)];
+          ? [path.join(dir, normalizedCommand)]
+          : exts.map((ext) => path.join(dir, `${normalizedCommand}${ext}`))
+        : [path.join(dir, normalizedCommand)];
     for (const candidate of candidates) {
       if (await pathExists(candidate)) return candidate;
     }
@@ -290,10 +345,14 @@ async function resolveSpawnTarget(
 
   if (/\.(cmd|bat)$/i.test(executable)) {
     const shell = env.ComSpec || process.env.ComSpec || "cmd.exe";
-    const commandLine = [quoteForCmd(executable), ...args.map(quoteForCmd)].join(" ");
+    const commandLine = [
+      quoteForCmd(executable),
+      ...args.map(quoteForCmd),
+    ].join(" ");
     return {
       command: shell,
-      args: ["/d", "/s", "/c", commandLine],
+      args: ["/d", "/s", "/c", `"${commandLine}"`],
+      windowsVerbatimArguments: true,
     };
   }
 
@@ -348,7 +407,9 @@ export async function resolvePaperclipSkillsDir(
   additionalCandidates: string[] = [],
 ): Promise<string | null> {
   const candidates = [
-    ...PAPERCLIP_SKILL_ROOT_RELATIVE_CANDIDATES.map((relativePath) => path.resolve(moduleDir, relativePath)),
+    ...PAPERCLIP_SKILL_ROOT_RELATIVE_CANDIDATES.map((relativePath) =>
+      path.resolve(moduleDir, relativePath),
+    ),
     ...additionalCandidates.map((candidate) => path.resolve(candidate)),
   ];
   const seenRoots = new Set<string>();
@@ -356,7 +417,10 @@ export async function resolvePaperclipSkillsDir(
   for (const root of candidates) {
     if (seenRoots.has(root)) continue;
     seenRoots.add(root);
-    const isDirectory = await fs.stat(root).then((stats) => stats.isDirectory()).catch(() => false);
+    const isDirectory = await fs
+      .stat(root)
+      .then((stats) => stats.isDirectory())
+      .catch(() => false);
     if (isDirectory) return root;
   }
 
@@ -379,20 +443,30 @@ export async function listPaperclipSkillEntries(
         runtimeName: entry.name,
         source: path.join(root, entry.name),
         required: true,
-        requiredReason: "Bundled Paperclip skills are always available for local adapters.",
+        requiredReason:
+          "Bundled Paperclip skills are always available for local adapters.",
       }));
   } catch {
     return [];
   }
 }
 
-export async function readInstalledSkillTargets(skillsHome: string): Promise<Map<string, InstalledSkillTarget>> {
-  const entries = await fs.readdir(skillsHome, { withFileTypes: true }).catch(() => []);
+export async function readInstalledSkillTargets(
+  skillsHome: string,
+): Promise<Map<string, InstalledSkillTarget>> {
+  const entries = await fs
+    .readdir(skillsHome, { withFileTypes: true })
+    .catch(() => []);
   const out = new Map<string, InstalledSkillTarget>();
   for (const entry of entries) {
     const fullPath = path.join(skillsHome, entry.name);
-    const linkedPath = entry.isSymbolicLink() ? await fs.readlink(fullPath).catch(() => null) : null;
-    out.set(entry.name, resolveInstalledEntryTarget(skillsHome, entry.name, entry, linkedPath));
+    const linkedPath = entry.isSymbolicLink()
+      ? await fs.readlink(fullPath).catch(() => null)
+      : null;
+    out.set(
+      entry.name,
+      resolveInstalledEntryTarget(skillsHome, entry.name, entry, linkedPath),
+    );
   }
   return out;
 }
@@ -412,7 +486,9 @@ export function buildPersistentSkillSnapshot(
     externalConflictDetail,
     externalDetail,
   } = options;
-  const availableByKey = new Map(availableEntries.map((entry) => [entry.key, entry]));
+  const availableByKey = new Map(
+    availableEntries.map((entry) => [entry.key, entry]),
+  );
   const desiredSet = new Set(desiredSkills);
   const entries: AdapterSkillEntry[] = [];
   const warnings = [...(options.warnings ?? [])];
@@ -453,7 +529,9 @@ export function buildPersistentSkillSnapshot(
 
   for (const desiredSkill of desiredSkills) {
     if (availableByKey.has(desiredSkill)) continue;
-    warnings.push(`Desired skill "${desiredSkill}" is not available from the Paperclip skills directory.`);
+    warnings.push(
+      `Desired skill "${desiredSkill}" is not available from the Paperclip skills directory.`,
+    );
     entries.push({
       key: desiredSkill,
       runtimeName: null,
@@ -462,7 +540,8 @@ export function buildPersistentSkillSnapshot(
       state: "missing",
       sourcePath: null,
       targetPath: null,
-      detail: "Paperclip cannot find this skill in the local runtime skills directory.",
+      detail:
+        "Paperclip cannot find this skill in the local runtime skills directory.",
       origin: "external_unknown",
       originLabel: "External or unavailable",
       readOnly: false,
@@ -499,13 +578,18 @@ export function buildPersistentSkillSnapshot(
   };
 }
 
-function normalizeConfiguredPaperclipRuntimeSkills(value: unknown): PaperclipSkillEntry[] {
+function normalizeConfiguredPaperclipRuntimeSkills(
+  value: unknown,
+): PaperclipSkillEntry[] {
   if (!Array.isArray(value)) return [];
   const out: PaperclipSkillEntry[] = [];
   for (const rawEntry of value) {
     const entry = parseObject(rawEntry);
     const key = asString(entry.key, asString(entry.name, "")).trim();
-    const runtimeName = asString(entry.runtimeName, asString(entry.name, "")).trim();
+    const runtimeName = asString(
+      entry.runtimeName,
+      asString(entry.name, ""),
+    ).trim();
     const source = asString(entry.source, "").trim();
     if (!key || !runtimeName || !source) continue;
     out.push({
@@ -514,7 +598,8 @@ function normalizeConfiguredPaperclipRuntimeSkills(value: unknown): PaperclipSki
       source,
       required: asBoolean(entry.required, false),
       requiredReason:
-        typeof entry.requiredReason === "string" && entry.requiredReason.trim().length > 0
+        typeof entry.requiredReason === "string" &&
+        entry.requiredReason.trim().length > 0
           ? entry.requiredReason.trim()
           : null,
     });
@@ -527,7 +612,9 @@ export async function readPaperclipRuntimeSkillEntries(
   moduleDir: string,
   additionalCandidates: string[] = [],
 ): Promise<PaperclipSkillEntry[]> {
-  const configuredEntries = normalizeConfiguredPaperclipRuntimeSkills(config.paperclipRuntimeSkills);
+  const configuredEntries = normalizeConfiguredPaperclipRuntimeSkills(
+    config.paperclipRuntimeSkills,
+  );
   if (configuredEntries.length > 0) return configuredEntries;
   return listPaperclipSkillEntries(moduleDir, additionalCandidates);
 }
@@ -550,7 +637,9 @@ export async function readPaperclipSkillMarkdown(
   }
 }
 
-export function readPaperclipSkillSyncPreference(config: Record<string, unknown>): {
+export function readPaperclipSkillSyncPreference(
+  config: Record<string, unknown>,
+): {
   explicit: boolean;
   desiredSkills: string[];
 } {
@@ -579,16 +668,21 @@ function canonicalizeDesiredPaperclipSkillReference(
   const normalizedReference = reference.trim().toLowerCase();
   if (!normalizedReference) return "";
 
-  const exactKey = availableEntries.find((entry) => entry.key.trim().toLowerCase() === normalizedReference);
+  const exactKey = availableEntries.find(
+    (entry) => entry.key.trim().toLowerCase() === normalizedReference,
+  );
   if (exactKey) return exactKey.key;
 
-  const byRuntimeName = availableEntries.filter((entry) =>
-    typeof entry.runtimeName === "string" && entry.runtimeName.trim().toLowerCase() === normalizedReference,
+  const byRuntimeName = availableEntries.filter(
+    (entry) =>
+      typeof entry.runtimeName === "string" &&
+      entry.runtimeName.trim().toLowerCase() === normalizedReference,
   );
   if (byRuntimeName.length === 1) return byRuntimeName[0]!.key;
 
-  const slugMatches = availableEntries.filter((entry) =>
-    entry.key.trim().toLowerCase().split("/").pop() === normalizedReference,
+  const slugMatches = availableEntries.filter(
+    (entry) =>
+      entry.key.trim().toLowerCase().split("/").pop() === normalizedReference,
   );
   if (slugMatches.length === 1) return slugMatches[0]!.key;
 
@@ -597,7 +691,11 @@ function canonicalizeDesiredPaperclipSkillReference(
 
 export function resolvePaperclipDesiredSkillNames(
   config: Record<string, unknown>,
-  availableEntries: Array<{ key: string; runtimeName?: string | null; required?: boolean }>,
+  availableEntries: Array<{
+    key: string;
+    runtimeName?: string | null;
+    required?: boolean;
+  }>,
 ): string[] {
   const preference = readPaperclipSkillSyncPreference(config);
   const requiredSkills = availableEntries
@@ -607,7 +705,9 @@ export function resolvePaperclipDesiredSkillNames(
     return Array.from(new Set(requiredSkills));
   }
   const desiredSkills = preference.desiredSkills
-    .map((reference) => canonicalizeDesiredPaperclipSkillReference(reference, availableEntries))
+    .map((reference) =>
+      canonicalizeDesiredPaperclipSkillReference(reference, availableEntries),
+    )
     .filter(Boolean);
   return Array.from(new Set([...requiredSkills, ...desiredSkills]));
 }
@@ -623,11 +723,7 @@ export function writePaperclipSkillSyncPreference(
       ? { ...(raw as Record<string, unknown>) }
       : {};
   current.desiredSkills = Array.from(
-    new Set(
-      desiredSkills
-        .map((value) => value.trim())
-        .filter(Boolean),
-    ),
+    new Set(desiredSkills.map((value) => value.trim()).filter(Boolean)),
   );
   next.paperclipSkillSync = current;
   return next;
@@ -636,8 +732,13 @@ export function writePaperclipSkillSyncPreference(
 export async function ensurePaperclipSkillSymlink(
   source: string,
   target: string,
-  linkSkill: (source: string, target: string) => Promise<void> = (linkSource, linkTarget) =>
-    fs.symlink(linkSource, linkTarget),
+  linkSkill: (source: string, target: string) => Promise<void> = (
+    linkSource,
+    linkTarget,
+  ) =>
+    process.platform === "win32"
+      ? fs.symlink(linkSource, linkTarget, "junction")
+      : fs.symlink(linkSource, linkTarget),
 ): Promise<"created" | "repaired" | "skipped"> {
   const existing = await fs.lstat(target).catch(() => null);
   if (!existing) {
@@ -657,7 +758,10 @@ export async function ensurePaperclipSkillSymlink(
     return "skipped";
   }
 
-  const linkedPathExists = await fs.stat(resolvedLinkedPath).then(() => true).catch(() => false);
+  const linkedPathExists = await fs
+    .stat(resolvedLinkedPath)
+    .then(() => true)
+    .catch(() => false);
   if (linkedPathExists) {
     return "skipped";
   }
@@ -705,12 +809,20 @@ export async function removeMaintainerOnlySkillSymlinks(
   }
 }
 
-export async function ensureCommandResolvable(command: string, cwd: string, env: NodeJS.ProcessEnv) {
+export async function ensureCommandResolvable(
+  command: string,
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+) {
   const resolved = await resolveCommandPath(command, cwd, env);
   if (resolved) return;
   if (command.includes("/") || command.includes("\\")) {
-    const absolute = path.isAbsolute(command) ? command : path.resolve(cwd, command);
-    throw new Error(`Command is not executable: "${command}" (resolved: "${absolute}")`);
+    const absolute = path.isAbsolute(command)
+      ? command
+      : path.resolve(cwd, command);
+    throw new Error(
+      `Command is not executable: "${command}" (resolved: "${absolute}")`,
+    );
   }
   throw new Error(`Command not found in PATH: "${command}"`);
 }
@@ -730,7 +842,9 @@ export async function runChildProcess(
     stdin?: string;
   },
 ): Promise<RunProcessResult> {
-  const onLogError = opts.onLogError ?? ((err, id, msg) => console.warn({ err, runId: id }, msg));
+  const onLogError =
+    opts.onLogError ??
+    ((err, id, msg) => console.warn({ err, runId: id }, msg));
 
   return new Promise<RunProcessResult>((resolve, reject) => {
     const rawMerged: NodeJS.ProcessEnv = { ...process.env, ...opts.env };
@@ -757,6 +871,7 @@ export async function runChildProcess(
           cwd: opts.cwd,
           env: mergedEnv,
           shell: false,
+          windowsVerbatimArguments: target.windowsVerbatimArguments ?? false,
           stdio: [opts.stdin != null ? "pipe" : "ignore", "pipe", "pipe"],
         }) as ChildProcessWithEvents;
         const startedAt = new Date().toISOString();
@@ -784,11 +899,14 @@ export async function runChildProcess(
             ? setTimeout(() => {
                 timedOut = true;
                 child.kill("SIGTERM");
-                setTimeout(() => {
-                  if (!child.killed) {
-                    child.kill("SIGKILL");
-                  }
-                }, Math.max(1, opts.graceSec) * 1000);
+                setTimeout(
+                  () => {
+                    if (!child.killed) {
+                      child.kill("SIGKILL");
+                    }
+                  },
+                  Math.max(1, opts.graceSec) * 1000,
+                );
               }, opts.timeoutSec * 1000)
             : null;
 
@@ -797,7 +915,9 @@ export async function runChildProcess(
           stdout = appendWithCap(stdout, text);
           logChain = logChain
             .then(() => opts.onLog("stdout", text))
-            .catch((err) => onLogError(err, runId, "failed to append stdout log chunk"));
+            .catch((err) =>
+              onLogError(err, runId, "failed to append stdout log chunk"),
+            );
         });
 
         child.stderr?.on("data", (chunk: unknown) => {
@@ -805,7 +925,9 @@ export async function runChildProcess(
           stderr = appendWithCap(stderr, text);
           logChain = logChain
             .then(() => opts.onLog("stderr", text))
-            .catch((err) => onLogError(err, runId, "failed to append stderr log chunk"));
+            .catch((err) =>
+              onLogError(err, runId, "failed to append stderr log chunk"),
+            );
         });
 
         child.on("error", (err: Error) => {
@@ -820,21 +942,24 @@ export async function runChildProcess(
           reject(new Error(msg));
         });
 
-        child.on("close", (code: number | null, signal: NodeJS.Signals | null) => {
-          if (timeout) clearTimeout(timeout);
-          runningProcesses.delete(runId);
-          void logChain.finally(() => {
-            resolve({
-              exitCode: code,
-              signal,
-              timedOut,
-              stdout,
-              stderr,
-              pid: child.pid ?? null,
-              startedAt,
+        child.on(
+          "close",
+          (code: number | null, signal: NodeJS.Signals | null) => {
+            if (timeout) clearTimeout(timeout);
+            runningProcesses.delete(runId);
+            void logChain.finally(() => {
+              resolve({
+                exitCode: code,
+                signal,
+                timedOut,
+                stdout,
+                stderr,
+                pid: child.pid ?? null,
+                startedAt,
+              });
             });
-          });
-        });
+          },
+        );
       })
       .catch(reject);
   });

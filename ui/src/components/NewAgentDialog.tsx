@@ -15,6 +15,7 @@ import {
   Bot,
   Code,
   Gem,
+  Github,
   MousePointer2,
   Sparkles,
   Terminal,
@@ -31,7 +32,8 @@ type AdvancedAdapterType =
   | "pi_local"
   | "cursor"
   | "openclaw_gateway"
-  | "hermes_local";
+  | "hermes_local"
+  | "copilot";
 
 const ADVANCED_ADAPTER_OPTIONS: Array<{
   value: AdvancedAdapterType;
@@ -40,6 +42,13 @@ const ADVANCED_ADAPTER_OPTIONS: Array<{
   icon: ComponentType<{ className?: string }>;
   recommended?: boolean;
 }> = [
+  {
+    value: "copilot",
+    label: "GitHub Copilot",
+    icon: Github,
+    desc: "GitHub Copilot subscription",
+    recommended: true,
+  },
   {
     value: "claude_local",
     label: "Claude Code",

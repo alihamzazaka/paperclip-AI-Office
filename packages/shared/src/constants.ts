@@ -31,6 +31,7 @@ export const AGENT_ADAPTER_TYPES = [
   "cursor",
   "openclaw_gateway",
   "hermes_local",
+  "copilot",
 ] as const;
 export type AgentAdapterType = (typeof AGENT_ADAPTER_TYPES)[number];
 
@@ -128,7 +129,12 @@ export type IssueOriginKind = (typeof ISSUE_ORIGIN_KINDS)[number];
 export const GOAL_LEVELS = ["company", "team", "agent", "task"] as const;
 export type GoalLevel = (typeof GOAL_LEVELS)[number];
 
-export const GOAL_STATUSES = ["planned", "active", "achieved", "cancelled"] as const;
+export const GOAL_STATUSES = [
+  "planned",
+  "active",
+  "achieved",
+  "cancelled",
+] as const;
 export type GoalStatus = (typeof GOAL_STATUSES)[number];
 
 export const PROJECT_STATUSES = [
@@ -143,17 +149,26 @@ export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 export const ROUTINE_STATUSES = ["active", "paused", "archived"] as const;
 export type RoutineStatus = (typeof ROUTINE_STATUSES)[number];
 
-export const ROUTINE_CONCURRENCY_POLICIES = ["coalesce_if_active", "always_enqueue", "skip_if_active"] as const;
-export type RoutineConcurrencyPolicy = (typeof ROUTINE_CONCURRENCY_POLICIES)[number];
+export const ROUTINE_CONCURRENCY_POLICIES = [
+  "coalesce_if_active",
+  "always_enqueue",
+  "skip_if_active",
+] as const;
+export type RoutineConcurrencyPolicy =
+  (typeof ROUTINE_CONCURRENCY_POLICIES)[number];
 
-export const ROUTINE_CATCH_UP_POLICIES = ["skip_missed", "enqueue_missed_with_cap"] as const;
+export const ROUTINE_CATCH_UP_POLICIES = [
+  "skip_missed",
+  "enqueue_missed_with_cap",
+] as const;
 export type RoutineCatchUpPolicy = (typeof ROUTINE_CATCH_UP_POLICIES)[number];
 
 export const ROUTINE_TRIGGER_KINDS = ["schedule", "webhook", "api"] as const;
 export type RoutineTriggerKind = (typeof ROUTINE_TRIGGER_KINDS)[number];
 
 export const ROUTINE_TRIGGER_SIGNING_MODES = ["bearer", "hmac_sha256"] as const;
-export type RoutineTriggerSigningMode = (typeof ROUTINE_TRIGGER_SIGNING_MODES)[number];
+export type RoutineTriggerSigningMode =
+  (typeof ROUTINE_TRIGGER_SIGNING_MODES)[number];
 
 export const ROUTINE_RUN_STATUSES = [
   "received",
@@ -162,10 +177,15 @@ export const ROUTINE_RUN_STATUSES = [
   "issue_created",
   "completed",
   "failed",
- ] as const;
+] as const;
 export type RoutineRunStatus = (typeof ROUTINE_RUN_STATUSES)[number];
 
-export const ROUTINE_RUN_SOURCES = ["schedule", "manual", "api", "webhook"] as const;
+export const ROUTINE_RUN_SOURCES = [
+  "schedule",
+  "manual",
+  "api",
+  "webhook",
+] as const;
 export type RoutineRunSource = (typeof ROUTINE_RUN_SOURCES)[number];
 
 export const PAUSE_REASONS = ["manual", "budget", "system"] as const;
@@ -184,7 +204,11 @@ export const PROJECT_COLORS = [
   "#3b82f6", // blue
 ] as const;
 
-export const APPROVAL_TYPES = ["hire_agent", "approve_ceo_strategy", "budget_override_required"] as const;
+export const APPROVAL_TYPES = [
+  "hire_agent",
+  "approve_ceo_strategy",
+  "budget_override_required",
+] as const;
 export type ApprovalType = (typeof APPROVAL_TYPES)[number];
 
 export const APPROVAL_STATUSES = [
@@ -265,14 +289,19 @@ export type BudgetWindowKind = (typeof BUDGET_WINDOW_KINDS)[number];
 export const BUDGET_THRESHOLD_TYPES = ["soft", "hard"] as const;
 export type BudgetThresholdType = (typeof BUDGET_THRESHOLD_TYPES)[number];
 
-export const BUDGET_INCIDENT_STATUSES = ["open", "resolved", "dismissed"] as const;
+export const BUDGET_INCIDENT_STATUSES = [
+  "open",
+  "resolved",
+  "dismissed",
+] as const;
 export type BudgetIncidentStatus = (typeof BUDGET_INCIDENT_STATUSES)[number];
 
 export const BUDGET_INCIDENT_RESOLUTION_ACTIONS = [
   "keep_paused",
   "raise_budget_and_resume",
 ] as const;
-export type BudgetIncidentResolutionAction = (typeof BUDGET_INCIDENT_RESOLUTION_ACTIONS)[number];
+export type BudgetIncidentResolutionAction =
+  (typeof BUDGET_INCIDENT_RESOLUTION_ACTIONS)[number];
 
 export const HEARTBEAT_INVOCATION_SOURCES = [
   "timer",
@@ -280,9 +309,15 @@ export const HEARTBEAT_INVOCATION_SOURCES = [
   "on_demand",
   "automation",
 ] as const;
-export type HeartbeatInvocationSource = (typeof HEARTBEAT_INVOCATION_SOURCES)[number];
+export type HeartbeatInvocationSource =
+  (typeof HEARTBEAT_INVOCATION_SOURCES)[number];
 
-export const WAKEUP_TRIGGER_DETAILS = ["manual", "ping", "callback", "system"] as const;
+export const WAKEUP_TRIGGER_DETAILS = [
+  "manual",
+  "ping",
+  "callback",
+  "system",
+] as const;
 export type WakeupTriggerDetail = (typeof WAKEUP_TRIGGER_DETAILS)[number];
 
 export const WAKEUP_REQUEST_STATUSES = [
@@ -338,7 +373,11 @@ export type InviteJoinType = (typeof INVITE_JOIN_TYPES)[number];
 export const JOIN_REQUEST_TYPES = ["human", "agent"] as const;
 export type JoinRequestType = (typeof JOIN_REQUEST_TYPES)[number];
 
-export const JOIN_REQUEST_STATUSES = ["pending_approval", "approved", "rejected"] as const;
+export const JOIN_REQUEST_STATUSES = [
+  "pending_approval",
+  "approved",
+  "rejected",
+] as const;
 export type JoinRequestStatus = (typeof JOIN_REQUEST_STATUSES)[number];
 
 export const PERMISSION_KEYS = [
@@ -531,7 +570,8 @@ export const PLUGIN_LAUNCHER_PLACEMENT_ZONES = [
   "commentContextMenuItem",
   "settingsPage",
 ] as const;
-export type PluginLauncherPlacementZone = (typeof PLUGIN_LAUNCHER_PLACEMENT_ZONES)[number];
+export type PluginLauncherPlacementZone =
+  (typeof PLUGIN_LAUNCHER_PLACEMENT_ZONES)[number];
 
 /**
  * Launcher action kinds describe what the launcher does when activated.
@@ -586,7 +626,8 @@ export const PLUGIN_UI_SLOT_ENTITY_TYPES = [
   "run",
   "comment",
 ] as const;
-export type PluginUiSlotEntityType = (typeof PLUGIN_UI_SLOT_ENTITY_TYPES)[number];
+export type PluginUiSlotEntityType =
+  (typeof PLUGIN_UI_SLOT_ENTITY_TYPES)[number];
 
 /**
  * Scope kinds for plugin state storage. Determines the granularity at which
@@ -607,11 +648,7 @@ export const PLUGIN_STATE_SCOPE_KINDS = [
 export type PluginStateScopeKind = (typeof PLUGIN_STATE_SCOPE_KINDS)[number];
 
 /** Statuses for a plugin's scheduled job definition. */
-export const PLUGIN_JOB_STATUSES = [
-  "active",
-  "paused",
-  "failed",
-] as const;
+export const PLUGIN_JOB_STATUSES = ["active", "paused", "failed"] as const;
 export type PluginJobStatus = (typeof PLUGIN_JOB_STATUSES)[number];
 
 /** Statuses for individual job run executions. */
@@ -626,11 +663,7 @@ export const PLUGIN_JOB_RUN_STATUSES = [
 export type PluginJobRunStatus = (typeof PLUGIN_JOB_RUN_STATUSES)[number];
 
 /** What triggered a particular job run. */
-export const PLUGIN_JOB_RUN_TRIGGERS = [
-  "schedule",
-  "manual",
-  "retry",
-] as const;
+export const PLUGIN_JOB_RUN_TRIGGERS = ["schedule", "manual", "retry"] as const;
 export type PluginJobRunTrigger = (typeof PLUGIN_JOB_RUN_TRIGGERS)[number];
 
 /** Statuses for inbound webhook deliveries. */
@@ -639,7 +672,8 @@ export const PLUGIN_WEBHOOK_DELIVERY_STATUSES = [
   "success",
   "failed",
 ] as const;
-export type PluginWebhookDeliveryStatus = (typeof PLUGIN_WEBHOOK_DELIVERY_STATUSES)[number];
+export type PluginWebhookDeliveryStatus =
+  (typeof PLUGIN_WEBHOOK_DELIVERY_STATUSES)[number];
 
 /**
  * Core domain event types that plugins can subscribe to via the

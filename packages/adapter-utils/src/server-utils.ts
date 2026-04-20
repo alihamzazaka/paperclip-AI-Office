@@ -224,6 +224,33 @@ export function redactEnvForLogs(
   return redacted;
 }
 
+export function buildInvocationEnvForLogs(
+  env: Record<string, string>,
+  options: {
+    runtimeEnv?: NodeJS.ProcessEnv | Record<string, string>;
+    includeRuntimeKeys?: string[];
+    resolvedCommand?: string | null;
+    resolvedCommandEnvKey?: string;
+  } = {},
+): Record<string, string> {
+  const merged: Record<string, string> = { ...env };
+  const runtimeEnv = options.runtimeEnv ?? {};
+
+  for (const key of options.includeRuntimeKeys ?? []) {
+    if (key in merged) continue;
+    const value = runtimeEnv[key];
+    if (typeof value !== "string" || value.length === 0) continue;
+    merged[key] = value;
+  }
+
+  const resolvedCommand = options.resolvedCommand?.trim();
+  if (resolvedCommand) {
+    merged[options.resolvedCommandEnvKey ?? "PAPERCLIP_RESOLVED_COMMAND"] = resolvedCommand;
+  }
+
+  return redactEnvForLogs(merged);
+}
+
 export function buildPaperclipEnv(agent: {
   id: string;
   companyId: string;
@@ -322,6 +349,10 @@ async function resolveCommandPath(
   }
 
   return null;
+}
+
+export async function resolveCommandForLogs(command: string, cwd: string, env: NodeJS.ProcessEnv): Promise<string> {
+  return (await resolveCommandPath(command, cwd, env)) ?? command;
 }
 
 function quoteForCmd(arg: string) {

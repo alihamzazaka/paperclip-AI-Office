@@ -10,11 +10,8 @@ import { openClawGatewayUIAdapter } from "./openclaw-gateway";
 import { hermesLocalUIAdapter } from "./hermes-local";
 import { processUIAdapter } from "./process";
 import { httpUIAdapter } from "./http";
-import { loadDynamicParser, invalidateDynamicParser } from "./dynamic-loader";
-import {
-  SchemaConfigFields,
-  buildSchemaAdapterConfig,
-} from "./schema-config-fields";
+import { loadDynamicParser, invalidateDynamicParser, setDynamicParserResultNotifier } from "./dynamic-loader";
+import { SchemaConfigFields, buildSchemaAdapterConfig } from "./schema-config-fields";
 
 const uiAdapters: UIAdapterModule[] = [];
 const adaptersByType = new Map<string, UIAdapterModule>();
@@ -48,6 +45,8 @@ export function onAdapterChange(fn: () => void): () => void {
 function notifyAdapterChange(): void {
   for (const fn of adapterChangeListeners) fn();
 }
+
+setDynamicParserResultNotifier(notifyAdapterChange);
 
 function registerBuiltInUIAdapters() {
   for (const adapter of [

@@ -1,7 +1,7 @@
 /// <reference path="./types/express.d.ts" />
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
-import { resolve, dirname } from "node:path";
+import { resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { pathToFileURL } from "node:url";
@@ -11,7 +11,6 @@ import {
   createDb,
   ensurePostgresDatabase,
   formatEmbeddedPostgresError,
-  isSharedMemoryConflictError,
   getPostgresDataDirectory,
   inspectMigrations,
   applyPendingMigrations,
@@ -32,6 +31,7 @@ import { setupLiveEventsWebSocketServer } from "./realtime/live-events-ws.js";
 import {
   feedbackService,
   heartbeatService,
+  instanceSettingsService,
   reconcilePersistedRuntimeServicesOnStartup,
   routineService,
 } from "./services/index.js";
@@ -320,12 +320,7 @@ export async function startServer(): Promise<StartedServer> {
       );
     }
 
-    const configuredDataDir = resolve(config.embeddedPostgresDataDir);
-    // On Windows, a previous run may have written an override to avoid a shared memory conflict.
-    const overrideFile = resolve(dirname(configuredDataDir), "db-path-override.txt");
-    const dataDir = existsSync(overrideFile)
-      ? readFileSync(overrideFile, "utf8").trim()
-      : configuredDataDir;
+    const dataDir = resolve(config.embeddedPostgresDataDir);
     const configuredPort = config.embeddedPostgresPort;
     let port = configuredPort;
     const logBuffer = createEmbeddedPostgresLogBuffer(120);
@@ -450,30 +445,11 @@ export async function startServer(): Promise<StartedServer> {
           try {
             await embeddedPostgres.initialise();
           } catch (err) {
-            // On Windows, shared memory conflicts can also occur during initialise
-            const logs = logBuffer.getRecentLogs();
-            if (process.platform === "win32" && isSharedMemoryConflictError(err, logs)) {
-              const recoveryDir = resolve(dirname(configuredDataDir), "db-recovery");
-              logger.warn(`Shared memory conflict during init; switching to recovery dir ${recoveryDir}`);
-              if (existsSync(recoveryDir)) rmSync(recoveryDir, { recursive: true, force: true });
-              const freshLogBuffer = createEmbeddedPostgresLogBuffer(120);
-              embeddedPostgres = new EmbeddedPostgres({
-                databaseDir: recoveryDir,
-                user: "paperclip", password: "paperclip", port, persistent: true,
-                initdbFlags: ["--encoding=UTF8", "--locale=C", "--lc-messages=C"],
-                onLog: freshLogBuffer.append, onError: freshLogBuffer.append,
-              });
-              await embeddedPostgres.initialise();
-              await embeddedPostgres.start();
-              writeFileSync(overrideFile, recoveryDir, "utf8");
-              embeddedPostgresStartedByThisProcess = true;
-            } else {
-              logEmbeddedPostgresFailure("initialise", err);
-              throw formatEmbeddedPostgresError(err, {
-                fallbackMessage: `Failed to initialize embedded PostgreSQL cluster in ${dataDir} on port ${port}`,
-                recentLogs: logs,
-              });
-            }
+            logEmbeddedPostgresFailure("initialise", err);
+            throw formatEmbeddedPostgresError(err, {
+              fallbackMessage: `Failed to initialize embedded PostgreSQL cluster in ${dataDir} on port ${port}`,
+              recentLogs: logBuffer.getRecentLogs(),
+            });
           }
         } else {
           logger.info(
@@ -481,40 +457,20 @@ export async function startServer(): Promise<StartedServer> {
           );
         }
 
-        if (!embeddedPostgresStartedByThisProcess) {
-          if (existsSync(postmasterPidFile)) {
-            logger.warn("Removing stale embedded PostgreSQL lock file");
-            rmSync(postmasterPidFile, { force: true });
-          }
-          try {
-            await embeddedPostgres.start();
-          } catch (err) {
-            // On Windows, shared memory conflicts can also occur during start
-            const logs = logBuffer.getRecentLogs();
-            if (process.platform === "win32" && isSharedMemoryConflictError(err, logs)) {
-              const recoveryDir = resolve(dirname(configuredDataDir), "db-recovery");
-              logger.warn(`Shared memory conflict during start; switching to recovery dir ${recoveryDir}`);
-              if (existsSync(recoveryDir)) rmSync(recoveryDir, { recursive: true, force: true });
-              const freshLogBuffer = createEmbeddedPostgresLogBuffer(120);
-              embeddedPostgres = new EmbeddedPostgres({
-                databaseDir: recoveryDir,
-                user: "paperclip", password: "paperclip", port, persistent: true,
-                initdbFlags: ["--encoding=UTF8", "--locale=C", "--lc-messages=C"],
-                onLog: freshLogBuffer.append, onError: freshLogBuffer.append,
-              });
-              await embeddedPostgres.initialise();
-              await embeddedPostgres.start();
-              writeFileSync(overrideFile, recoveryDir, "utf8");
-            } else {
-              logEmbeddedPostgresFailure("start", err);
-              throw formatEmbeddedPostgresError(err, {
-                fallbackMessage: `Failed to start embedded PostgreSQL on port ${port}`,
-                recentLogs: logs,
-              });
-            }
-          }
-          embeddedPostgresStartedByThisProcess = true;
+        if (existsSync(postmasterPidFile)) {
+          logger.warn("Removing stale embedded PostgreSQL lock file");
+          rmSync(postmasterPidFile, { force: true });
         }
+        try {
+          await embeddedPostgres.start();
+        } catch (err) {
+          logEmbeddedPostgresFailure("start", err);
+          throw formatEmbeddedPostgresError(err, {
+            fallbackMessage: `Failed to start embedded PostgreSQL on port ${port}`,
+            recentLogs: logBuffer.getRecentLogs(),
+          });
+        }
+        embeddedPostgresStartedByThisProcess = true;
       }
     }
 
@@ -604,14 +560,6 @@ export async function startServer(): Promise<StartedServer> {
       resolveBetterAuthSession,
       resolveBetterAuthSessionFromHeaders,
     } = await import("./auth/better-auth.js");
-    const betterAuthSecret =
-      process.env.BETTER_AUTH_SECRET?.trim() ??
-      process.env.PAPERCLIP_AGENT_JWT_SECRET?.trim();
-    if (!betterAuthSecret) {
-      throw new Error(
-        "authenticated mode requires BETTER_AUTH_SECRET (or PAPERCLIP_AGENT_JWT_SECRET) to be set",
-      );
-    }
     const derivedTrustedOrigins = deriveAuthTrustedOrigins(config);
     const envTrustedOrigins = (process.env.BETTER_AUTH_TRUSTED_ORIGINS ?? "")
       .split(",")
@@ -674,7 +622,7 @@ export async function startServer(): Promise<StartedServer> {
       : "none";
   const storageService = createStorageServiceFromConfig(config);
   const feedback = feedbackService(db as any, {
-    shareClient: createFeedbackTraceShareClientFromConfig(config) ?? undefined,
+    shareClient: createFeedbackTraceShareClientFromConfig(config),
   });
   const app = await createApp(db as any, {
     uiMode,
@@ -694,6 +642,12 @@ export async function startServer(): Promise<StartedServer> {
     app as unknown as Parameters<typeof createServer>[0],
   );
 
+  // Increase keep-alive timeouts to safely outlive default idle timeouts
+  // of common reverse proxies and load balancers (like AWS ALB, Nginx, or Traefik).
+  // This prevents intermittent 502/ECONNRESET errors caused by Node's 5s default.
+  server.keepAliveTimeout = 185000;
+  server.headersTimeout = 186000;
+
   if (listenPort !== config.port) {
     logger.warn(
       `Requested port is busy; using next free port (requestedPort=${config.port}, selectedPort=${listenPort})`,
@@ -707,7 +661,9 @@ export async function startServer(): Promise<StartedServer> {
       : runtimeListenHost;
   process.env.PAPERCLIP_LISTEN_HOST = runtimeListenHost;
   process.env.PAPERCLIP_LISTEN_PORT = String(listenPort);
-  process.env.PAPERCLIP_API_URL = `http://${runtimeApiHost}:${listenPort}`;
+  if (!process.env.PAPERCLIP_API_URL) {
+    process.env.PAPERCLIP_API_URL = `http://${runtimeApiHost}:${listenPort}`;
+  }
 
   setupLiveEventsWebSocketServer(server, db as any, {
     deploymentMode: config.deploymentMode,
@@ -739,6 +695,19 @@ export async function startServer(): Promise<StartedServer> {
     void heartbeat
       .reapOrphanedRuns()
       .then(() => heartbeat.resumeQueuedRuns())
+      .then(async () => {
+        const reconciled = await heartbeat.reconcileStrandedAssignedIssues();
+        if (
+          reconciled.dispatchRequeued > 0 ||
+          reconciled.continuationRequeued > 0 ||
+          reconciled.escalated > 0
+        ) {
+          logger.warn(
+            { ...reconciled },
+            "startup stranded-issue reconciliation changed assigned issue state",
+          );
+        }
+      })
       .catch((err) => {
         logger.error({ err }, "startup heartbeat recovery failed");
       });
@@ -770,6 +739,19 @@ export async function startServer(): Promise<StartedServer> {
       void heartbeat
         .reapOrphanedRuns({ staleThresholdMs: 5 * 60 * 1000 })
         .then(() => heartbeat.resumeQueuedRuns())
+        .then(async () => {
+          const reconciled = await heartbeat.reconcileStrandedAssignedIssues();
+          if (
+            reconciled.dispatchRequeued > 0 ||
+            reconciled.continuationRequeued > 0 ||
+            reconciled.escalated > 0
+          ) {
+            logger.warn(
+              { ...reconciled },
+              "periodic stranded-issue reconciliation changed assigned issue state",
+            );
+          }
+        })
         .catch((err) => {
           logger.error({ err }, "periodic heartbeat recovery failed");
         });
@@ -778,6 +760,7 @@ export async function startServer(): Promise<StartedServer> {
 
   if (config.databaseBackupEnabled) {
     const backupIntervalMs = config.databaseBackupIntervalMinutes * 60 * 1000;
+    const settingsSvc = instanceSettingsService(db);
     let backupInFlight = false;
 
     const runScheduledBackup = async () => {
@@ -790,10 +773,14 @@ export async function startServer(): Promise<StartedServer> {
 
       backupInFlight = true;
       try {
+        // Read retention from Instance Settings (DB) so changes take effect without restart
+        const generalSettings = await settingsSvc.getGeneral();
+        const retention = generalSettings.backupRetention;
+
         const result = await runDatabaseBackup({
           connectionString: activeDatabaseConnectionString,
           backupDir: config.databaseBackupDir,
-          retentionDays: config.databaseBackupRetentionDays,
+          retention,
           filenamePrefix: "paperclip",
         });
         logger.info(
@@ -802,7 +789,7 @@ export async function startServer(): Promise<StartedServer> {
             sizeBytes: result.sizeBytes,
             prunedCount: result.prunedCount,
             backupDir: config.databaseBackupDir,
-            retentionDays: config.databaseBackupRetentionDays,
+            retention,
           },
           `Automatic database backup complete: ${formatDatabaseBackupResult(result)}`,
         );
@@ -819,7 +806,7 @@ export async function startServer(): Promise<StartedServer> {
     logger.info(
       {
         intervalMinutes: config.databaseBackupIntervalMinutes,
-        retentionDays: config.databaseBackupRetentionDays,
+        retentionSource: "instance-settings-db",
         backupDir: config.databaseBackupDir,
       },
       "Automatic database backups enabled",
@@ -828,6 +815,12 @@ export async function startServer(): Promise<StartedServer> {
       void runScheduledBackup();
     }, backupIntervalMs);
   }
+
+  // Wait for external adapters to finish loading before accepting requests.
+  // Without this, adapter type validation (assertKnownAdapterType) would
+  // reject valid external adapter types during the startup loading window.
+  const { waitForExternalAdapters } = await import("./adapters/registry.js");
+  await waitForExternalAdapters();
 
   await new Promise<void>((resolveListen, rejectListen) => {
     const onError = (err: Error) => {
@@ -855,6 +848,7 @@ export async function startServer(): Promise<StartedServer> {
           });
       }
       printStartupBanner({
+        bind: config.bind,
         host: config.host,
         deploymentMode: config.deploymentMode,
         deploymentExposure: config.deploymentExposure,
@@ -891,7 +885,7 @@ export async function startServer(): Promise<StartedServer> {
       resolveListen();
     });
   });
-  
+
   {
     const shutdown = async (signal: "SIGINT" | "SIGTERM") => {
       const telemetryClient = getTelemetryClient();
@@ -924,8 +918,7 @@ export async function startServer(): Promise<StartedServer> {
     server,
     host: config.host,
     listenPort,
-    apiUrl:
-      process.env.PAPERCLIP_API_URL ?? `http://${runtimeApiHost}:${listenPort}`,
+    apiUrl: process.env.PAPERCLIP_API_URL!,
     databaseUrl: activeDatabaseConnectionString,
   };
 }

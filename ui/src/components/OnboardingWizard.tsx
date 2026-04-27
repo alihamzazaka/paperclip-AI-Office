@@ -23,6 +23,10 @@ import {
   extractProviderIdWithFallback
 } from "../lib/model-utils";
 import { getUIAdapter } from "../adapters";
+import { listUIAdapters } from "../adapters";
+import { useDisabledAdaptersSync } from "../adapters/use-disabled-adapters";
+import { useAdapterCapabilities } from "../adapters/use-adapter-capabilities";
+import { getAdapterDisplay } from "../adapters/adapter-display-registry";
 import { defaultCreateValues } from "./agent-config-defaults";
 import { parseOnboardingGoalInput } from "../lib/onboarding-goal";
 import {
@@ -30,6 +34,7 @@ import {
   buildOnboardingProjectPayload,
   selectDefaultCompanyGoalId
 } from "../lib/onboarding-launch";
+import { buildNewAgentRuntimeConfig } from "../lib/new-agent-runtime-config";
 import {
   DEFAULT_CODEX_LOCAL_BYPASS_APPROVALS_AND_SANDBOX,
   DEFAULT_CODEX_LOCAL_MODEL
@@ -38,39 +43,22 @@ import { DEFAULT_CURSOR_LOCAL_MODEL } from "@paperclipai/adapter-cursor-local";
 import { DEFAULT_GEMINI_LOCAL_MODEL } from "@paperclipai/adapter-gemini-local";
 import { resolveRouteOnboardingOptions } from "../lib/onboarding-route";
 import { AsciiArtAnimation } from "./AsciiArtAnimation";
-import { OpenCodeLogoIcon } from "./OpenCodeLogoIcon";
 import {
   Building2,
   Bot,
-  Code,
-  Gem,
-  Github,
   ListTodo,
   Rocket,
   ArrowLeft,
   ArrowRight,
-  Terminal,
-  Sparkles,
-  MousePointer2,
   Check,
   Loader2,
   ChevronDown,
   X
 } from "lucide-react";
-import { HermesIcon } from "./HermesIcon";
+
 
 type Step = 1 | 2 | 3 | 4;
-type AdapterType =
-  | "claude_local"
-  | "codex_local"
-  | "copilot"
-  | "gemini_local"
-  | "hermes_local"
-  | "opencode_local"
-  | "pi_local"
-  | "cursor"
-  | "http"
-  | "openclaw_gateway";
+type AdapterType = string;
 
 const DEFAULT_TASK_DESCRIPTION = `You are the CEO. You set the direction for the company.
 
@@ -86,6 +74,9 @@ export function OnboardingWizard() {
   const location = useLocation();
   const { companyPrefix } = useParams<{ companyPrefix?: string }>();
   const [routeDismissed, setRouteDismissed] = useState(false);
+
+  // Sync disabled adapter types from server so adapter grid filters them out
+  const disabledTypes = useDisabledAdaptersSync();
 
   const routeOnboardingOptions =
     companyPrefix && companiesLoading
@@ -208,32 +199,35 @@ export function OnboardingWizard() {
     queryFn: () => agentsApi.adapterModels(createdCompanyId!, adapterType),
     enabled: Boolean(createdCompanyId) && effectiveOnboardingOpen && step === 2
   });
-  const isLocalAdapter =
-    adapterType === "claude_local" ||
-    adapterType === "codex_local" ||
-    adapterType === "copilot" ||
-    adapterType === "gemini_local" ||
-    adapterType === "hermes_local" ||
-    adapterType === "opencode_local" ||
-    adapterType === "pi_local" ||
-    adapterType === "cursor";
+  const getCapabilities = useAdapterCapabilities();
+  const adapterCaps = getCapabilities(adapterType);
+  const isLocalAdapter = adapterCaps.supportsInstructionsBundle || adapterCaps.supportsSkills || adapterCaps.supportsLocalAgentJwt;
+
+  // Build adapter grids dynamically from the UI registry + display metadata.
+  // External/plugin adapters automatically appear with generic defaults.
+  const { recommendedAdapters, moreAdapters } = useMemo(() => {
+    const SYSTEM_ADAPTER_TYPES = new Set(["process", "http"]);
+    const all = listUIAdapters()
+      .filter((a) => !SYSTEM_ADAPTER_TYPES.has(a.type) && !disabledTypes.has(a.type))
+      .map((a) => ({ ...getAdapterDisplay(a.type), type: a.type }));
+
+    return {
+      recommendedAdapters: all.filter((a) => a.recommended),
+      moreAdapters: all.filter((a) => !a.recommended),
+    };
+  }, [disabledTypes]);
+  const COMMAND_PLACEHOLDERS: Record<string, string> = {
+    claude_local: "claude",
+    codex_local: "codex",
+    copilot: "copilot",
+    gemini_local: "gemini",
+    pi_local: "pi",
+    cursor: "agent",
+    opencode_local: "opencode",
+  };
   const effectiveAdapterCommand =
     command.trim() ||
-    (adapterType === "codex_local"
-      ? "codex"
-      : adapterType === "copilot"
-        ? "copilot"
-      : adapterType === "gemini_local"
-        ? "gemini"
-      : adapterType === "hermes_local"
-        ? "hermes"
-      : adapterType === "pi_local"
-      ? "pi"
-      : adapterType === "cursor"
-      ? "agent"
-      : adapterType === "opencode_local"
-      ? "opencode"
-      : "claude");
+    (COMMAND_PLACEHOLDERS[adapterType] ?? adapterType.replace(/_local$/, ""));
 
   useEffect(() => {
     if (step !== 2) return;
@@ -470,15 +464,7 @@ export function OnboardingWizard() {
         role: "ceo",
         adapterType,
         adapterConfig: buildAdapterConfig(),
-        runtimeConfig: {
-          heartbeat: {
-            enabled: true,
-            intervalSec: 3600,
-            wakeOnDemand: true,
-            cooldownSec: 10,
-            maxConcurrentRuns: 1
-          }
-        }
+        runtimeConfig: buildNewAgentRuntimeConfig()
       });
       setCreatedAgentId(agent.id);
       queryClient.invalidateQueries({
@@ -764,32 +750,17 @@ export function OnboardingWizard() {
                       Adapter type
                     </label>
                     <div className="grid grid-cols-2 gap-2">
-                      {[
-                        {
-                          value: "claude_local" as const,
-                          label: "Claude Code",
-                          icon: Sparkles,
-                          desc: "Local Claude agent",
-                          recommended: true
-                        },
-                        {
-                          value: "codex_local" as const,
-                          label: "Codex",
-                          icon: Code,
-                          desc: "Local Codex agent",
-                          recommended: true
-                        }
-                      ].map((opt) => (
+                      {recommendedAdapters.map((opt) => (
                         <button
-                          key={opt.value}
+                          key={opt.type}
                           className={cn(
                             "flex flex-col items-center gap-1.5 rounded-md border p-3 text-xs transition-colors relative",
-                            adapterType === opt.value
+                            adapterType === opt.type
                               ? "border-foreground bg-accent"
                               : "border-border hover:bg-accent/50"
                           )}
                           onClick={() => {
-                            const nextType = opt.value as AdapterType;
+                            const nextType = opt.type;
                             setAdapterType(nextType);
                             if (nextType === "codex_local" && !model) {
                               setModel(DEFAULT_CODEX_LOCAL_MODEL);
@@ -807,7 +778,7 @@ export function OnboardingWizard() {
                           <opt.icon className="h-4 w-4" />
                           <span className="font-medium">{opt.label}</span>
                           <span className="text-muted-foreground text-[10px]">
-                            {opt.desc}
+                            {opt.description}
                           </span>
                         </button>
                       ))}
@@ -828,66 +799,21 @@ export function OnboardingWizard() {
 
                     {showMoreAdapters && (
                       <div className="grid grid-cols-2 gap-2 mt-2">
-                        {[
-                          {
-                            value: "gemini_local" as const,
-                            label: "Gemini CLI",
-                            icon: Gem,
-                            desc: "Local Gemini agent"
-                          },
-                          {
-                            value: "opencode_local" as const,
-                            label: "OpenCode",
-                            icon: OpenCodeLogoIcon,
-                            desc: "Local multi-provider agent"
-                          },
-                          {
-                            value: "pi_local" as const,
-                            label: "Pi",
-                            icon: Terminal,
-                            desc: "Local Pi agent"
-                          },
-                          {
-                            value: "cursor" as const,
-                            label: "Cursor",
-                            icon: MousePointer2,
-                            desc: "Local Cursor agent"
-                          },
-                          {
-                            value: "copilot" as const,
-                            label: "GitHub Copilot",
-                            icon: Github,
-                            desc: "GitHub Copilot agent"
-                          },
-                          {
-                            value: "hermes_local" as const,
-                            label: "Hermes Agent",
-                            icon: HermesIcon,
-                            desc: "Local multi-provider agent"
-                          },
-                          {
-                            value: "openclaw_gateway" as const,
-                            label: "OpenClaw Gateway",
-                            icon: Bot,
-                            desc: "Invoke OpenClaw via gateway protocol",
-                            comingSoon: true,
-                            disabledLabel: "Configure OpenClaw within the App"
-                          }
-                        ].map((opt) => (
-                          <button
-                            key={opt.value}
-                            disabled={!!opt.comingSoon}
-                            className={cn(
-                              "flex flex-col items-center gap-1.5 rounded-md border p-3 text-xs transition-colors relative",
-                              opt.comingSoon
-                                ? "border-border opacity-40 cursor-not-allowed"
-                                : adapterType === opt.value
-                                ? "border-foreground bg-accent"
-                                : "border-border hover:bg-accent/50"
-                            )}
-                            onClick={() => {
-                              if (opt.comingSoon) return;
-                              const nextType = opt.value as AdapterType;
+                        {moreAdapters.map((opt) => (
+                           <button
+                             key={opt.type}
+                             disabled={!!opt.comingSoon}
+                             className={cn(
+                               "flex flex-col items-center gap-1.5 rounded-md border p-3 text-xs transition-colors relative",
+                               opt.comingSoon
+                                 ? "border-border opacity-40 cursor-not-allowed"
+                                 : adapterType === opt.type
+                                 ? "border-foreground bg-accent"
+                                 : "border-border hover:bg-accent/50"
+                             )}
+                             onClick={() => {
+                               if (opt.comingSoon) return;
+                               const nextType = opt.type;
                               setAdapterType(nextType);
                               if (nextType === "gemini_local" && !model) {
                                 setModel(DEFAULT_GEMINI_LOCAL_MODEL);
@@ -910,9 +836,8 @@ export function OnboardingWizard() {
                             <span className="font-medium">{opt.label}</span>
                             <span className="text-muted-foreground text-[10px]">
                               {opt.comingSoon
-                                ? (opt as { disabledLabel?: string })
-                                    .disabledLabel ?? "Coming soon"
-                                : opt.desc}
+                                ? opt.disabledLabel ?? "Coming soon"
+                                : opt.description}
                             </span>
                           </button>
                         ))}
@@ -921,14 +846,7 @@ export function OnboardingWizard() {
                   </div>
 
                   {/* Conditional adapter fields */}
-                  {(adapterType === "claude_local" ||
-                    adapterType === "codex_local" ||
-                    adapterType === "copilot" ||
-                    adapterType === "gemini_local" ||
-                    adapterType === "hermes_local" ||
-                    adapterType === "opencode_local" ||
-                    adapterType === "pi_local" ||
-                    adapterType === "cursor") && (
+                  {isLocalAdapter && (
                     <div className="space-y-3">
                       <div>
                         <label className="text-xs text-muted-foreground mb-1 block">
@@ -1099,10 +1017,10 @@ export function OnboardingWizard() {
                           <p className="text-muted-foreground font-mono break-all">
                             {adapterType === "cursor"
                               ? `${effectiveAdapterCommand} -p --mode ask --output-format json \"Respond with hello.\"`
-                              : adapterType === "copilot"
-                                ? `${effectiveAdapterCommand} -p \"Respond with hello.\" --silent --output-format text --stream off --no-ask-user --allow-all-tools`
                               : adapterType === "codex_local"
                               ? `${effectiveAdapterCommand} exec --json -`
+                              : adapterType === "copilot"
+                                ? `${effectiveAdapterCommand} -p "Respond with hello." --silent --output-format text --stream off --no-ask-user --allow-all-tools`
                               : adapterType === "gemini_local"
                                 ? `${effectiveAdapterCommand} --output-format json "Respond with hello."`
                               : adapterType === "opencode_local"
@@ -1114,8 +1032,8 @@ export function OnboardingWizard() {
                             <span className="font-mono">Respond with hello.</span>
                           </p>
                           {adapterType === "cursor" ||
-                          adapterType === "copilot" ||
                           adapterType === "codex_local" ||
+                          adapterType === "copilot" ||
                           adapterType === "gemini_local" ||
                           adapterType === "opencode_local" ? (
                             <p className="text-muted-foreground">
@@ -1124,22 +1042,22 @@ export function OnboardingWizard() {
                                 {adapterType === "cursor"
                                   ? "CURSOR_API_KEY"
                                   : adapterType === "copilot"
-                                    ? "COPILOT_GITHUB_TOKEN"
-                                  : adapterType === "gemini_local"
-                                    ? "GEMINI_API_KEY"
-                                    : "OPENAI_API_KEY"}
+                                    ? "GH_TOKEN"
+                                    : adapterType === "gemini_local"
+                                      ? "GEMINI_API_KEY"
+                                      : "OPENAI_API_KEY"}
                               </span>{" "}
                               in env or run{" "}
                               <span className="font-mono">
                                 {adapterType === "cursor"
                                   ? "agent login"
-                                  : adapterType === "copilot"
-                                    ? "copilot login"
                                   : adapterType === "codex_local"
                                     ? "codex login"
-                                    : adapterType === "gemini_local"
-                                      ? "gemini auth"
-                                      : "opencode auth login"}
+                                    : adapterType === "copilot"
+                                      ? "copilot login"
+                                      : adapterType === "gemini_local"
+                                        ? "gemini auth"
+                                        : "opencode auth login"}
                               </span>
                               .
                             </p>
